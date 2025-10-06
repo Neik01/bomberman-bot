@@ -109,6 +109,7 @@ public class BombermanBot {
             // Start bot immediately in practice mode (no start event)
             // In competition mode, wait for start event
             isGameStarted = true;
+            gameState.setGameStarted(true);
             startBotLogic();
             System.out.println("Bot started moving!");
             
@@ -120,6 +121,7 @@ public class BombermanBot {
     private Emitter.Listener onGameStart = args -> {
         // This event only fires in competition mode
         isGameStarted = true;
+        gameState.setGameStarted(true);
         System.out.println("Game started! (Competition mode)");
         // Don't start bot logic here as it's already started in onUserJoined
         // This just confirms the competition has begun
@@ -231,6 +233,7 @@ public class BombermanBot {
     private Emitter.Listener onGameFinish = args -> {
         System.out.println("Game finished!");
         isGameStarted = false;
+        gameState.setGameStarted(false);
         scheduler.shutdown();
     };
 
@@ -241,7 +244,7 @@ public class BombermanBot {
         }
 
         new Thread(() -> {
-
+            while (true) {
                 try {
                     // Wait for game to start in competition mode
                     if (!gameState.isGameStarted()) {
@@ -254,7 +257,7 @@ public class BombermanBot {
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
-
+            }
         }).start();
     }
 
@@ -295,9 +298,9 @@ public class BombermanBot {
                 // Look for bombing opportunities
                 if (myBot.getBombCount() > 0) {
                     BombTarget target = strategy.findBestBombingPosition();
-                    if (target != null && target.hasRetreat && target.score > 0) {
+                    if (target != null && target.isHasRetreat() && target.getScore() > 0) {
                         currentTarget = target;
-                        currentPath = target.pathToTarget;
+                        currentPath = target.getPathToTarget();
                         pathIndex = 0;
 
                         if (currentPath == null || currentPath.isEmpty()) {
@@ -317,6 +320,7 @@ public class BombermanBot {
                     String exploreDirection = findSafeDirection(dangerZones);
                     if (exploreDirection != null) {
                         move(exploreDirection);
+                        return; // only one instruction per tick
                     }
                 }
                 break;
@@ -327,6 +331,7 @@ public class BombermanBot {
                     String direction = currentPath.get(pathIndex);
                     move(direction);
                     pathIndex++;
+                    return; // only one instruction per tick
                 } else {
                     // Reached bombing position
                     currentState = BotState.PLACING_BOMB;
@@ -334,27 +339,26 @@ public class BombermanBot {
                 break;
 
             case PLACING_BOMB:
-                // Place bomb
-                placeBomb();
-                System.out.println("Placed bomb at position");
-
-                // Calculate retreat path
+                // Ensure retreat is possible BEFORE placing bomb
                 int[] myCell = gameState.coordToCell(myBot.getX(), myBot.getY());
-                List<String> retreatPath = strategy.findRetreatPath(
-                        myCell[0], myCell[1], myBot.getExplosionRange()
-                );
+                List<String> retreatPath = strategy.findRetreatPath(myCell[0], myCell[1], myBot.getExplosionRange());
 
                 if (retreatPath != null && !retreatPath.isEmpty()) {
+                    placeBomb();
+                    System.out.println("Placed bomb at position");
+
                     currentPath = retreatPath;
                     pathIndex = 0;
                     currentState = BotState.RETREATING;
                     System.out.println("Retreating with path: " + retreatPath);
+                    return; // only one instruction per tick
                 } else {
-                    // No retreat path, just move to any safe direction
+                    // Do not place bomb if cannot retreat; try to move to a safe direction
                     currentState = BotState.IDLE;
                     String safeDir = findSafeDirection(dangerZones);
                     if (safeDir != null) {
                         move(safeDir);
+                        return; // only one instruction per tick
                     }
                 }
                 break;
@@ -365,6 +369,7 @@ public class BombermanBot {
                     String direction = currentPath.get(pathIndex);
                     move(direction);
                     pathIndex++;
+                    return; // only one instruction per tick
                 } else {
                     // Finished retreating
                     System.out.println("Finished retreat, back to IDLE");

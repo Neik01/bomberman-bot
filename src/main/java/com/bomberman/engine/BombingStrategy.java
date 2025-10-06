@@ -9,6 +9,7 @@ public class BombingStrategy {
     private static final int[] COL_DIRS = {0, 0, -1, 1};
     
     private GameState gameState;
+    private final DangerZoneCalculator dangerZoneCalculator = new DangerZoneCalculator();
     
     public BombingStrategy(GameState gameState) {
         this.gameState = gameState;
@@ -152,7 +153,7 @@ public class BombingStrategy {
         if (score == 0) return null; // No targets, don't bomb
         
         // Check for retreat path
-        boolean hasRetreat = findRetreatPath(row, col, explosionRange);
+        boolean hasRetreat = hasRetreatPath(row, col, explosionRange);
         
         BombTarget target = new BombTarget();
         target.setRow(row);
@@ -222,14 +223,13 @@ public class BombingStrategy {
     }
     
     // Find retreat path using BFS - O(map_size) worst case
-    private boolean findRetreatPath(int bombRow, int bombCol, int explosionRange) {
+    private boolean hasRetreatPath(int bombRow, int bombCol, int explosionRange) {
         String[][] map = gameState.getGameMap().getMap();
         int rows = map.length;
         int cols = map[0].length;
         
-        // Create danger zone for this hypothetical bomb
-        boolean[][] dangerZone = new boolean[rows][cols];
-        markDangerFromBomb(dangerZone, bombRow, bombCol, explosionRange);
+        // Create danger zone for this hypothetical bomb using the calculator
+        boolean[][] dangerZone = dangerZoneCalculator.buildBombDangerZone(map, bombRow, bombCol, explosionRange);
         
         // BFS to find safe cell within 5 seconds (assuming speed=1, ~5 cells away)
         Queue<int[]> queue = new LinkedList<>();
@@ -270,52 +270,49 @@ public class BombingStrategy {
         
         return false; // No safe retreat found
     }
-    
-    // Mark danger zone for a hypothetical bomb - O(range)
-    private void markDangerFromBomb(boolean[][] dangerZone, int bombRow, int bombCol, int range) {
+
+    // Find safe direction to retreat after placing bomb - returns path (if any)
+    public List<String> findRetreatPath(int bombRow, int bombCol, int explosionRange) {
         String[][] map = gameState.getGameMap().getMap();
-        dangerZone[bombRow][bombCol] = true;
-        
-        // Mark 4 directions
-        markDangerInDirection(dangerZone, map, bombRow, bombCol, -1, 0, range); // UP
-        markDangerInDirection(dangerZone, map, bombRow, bombCol, 1, 0, range);  // DOWN
-        markDangerInDirection(dangerZone, map, bombRow, bombCol, 0, -1, range); // LEFT
-        markDangerInDirection(dangerZone, map, bombRow, bombCol, 0, 1, range);  // RIGHT
+        if (map == null) return null;
+        int rows = map.length;
+        int cols = map[0].length;
+
+        boolean[][] dangerZone = dangerZoneCalculator.buildBombDangerZone(map, bombRow, bombCol, explosionRange);
+
+        java.util.Queue<com.bomberman.model.PathNode> queue = new java.util.LinkedList<>();
+        boolean[][] visited = new boolean[rows][cols];
+
+        com.bomberman.model.PathNode start = new com.bomberman.model.PathNode(bombRow, bombCol, 0, 0, null, null);
+        queue.offer(start);
+        visited[bombRow][bombCol] = true;
+
+        com.bomberman.model.Bomber myBot = gameState.getMyBomber();
+        int maxDistance = 5 + (myBot != null ? myBot.getSpeedCount() : 0);
+
+        String[] directions = {"UP", "DOWN", "LEFT", "RIGHT"};
+        for (;;) {
+            if (queue.isEmpty()) break;
+            com.bomberman.model.PathNode current = queue.poll();
+            if (!dangerZone[current.getRow()][current.getCol()] && current.getG() > 0) {
+                return reconstructPath(current);
+            }
+            if (current.getG() >= maxDistance) continue;
+            for (int i = 0; i < 4; i++) {
+                int newRow = current.getRow() + ROW_DIRS[i];
+                int newCol = current.getCol() + COL_DIRS[i];
+                if (newRow < 0 || newRow >= rows || newCol < 0 || newCol >= cols) continue;
+                if (visited[newRow][newCol]) continue;
+                if (map[newRow][newCol] != null) continue;
+                visited[newRow][newCol] = true;
+                com.bomberman.model.PathNode neighbor = new com.bomberman.model.PathNode(newRow, newCol, current.getG() + 1, 0, current, directions[i]);
+                queue.offer(neighbor);
+            }
+        }
+        return null;
     }
     
-    private void markDangerInDirection(boolean[][] dangerZone, String[][] map, 
-                                       int startRow, int startCol, int deltaRow, int deltaCol, int range) {
-        for (int i = 1; i <= range; i++) {
-            int row = startRow + (deltaRow * i);
-            int col = startCol + (deltaCol * i);
-            
-            if (row < 0 || row >= map.length || col < 0 || col >= map[0].length) break;
-            
-            String cell = map[row][col];
-            if ("W".equals(cell)) break;
-            
-            dangerZone[row][col] = true;
-            
-            if ("C".equals(cell)) break;
-        }
-    }
     
-    // Check if target cell is in bomb's blast path - O(1)
-    private boolean isInBombBlastPath(int bombRow, int bombCol, int targetRow, int targetCol, int range) {
-        // Same row (horizontal blast)
-        if (bombRow == targetRow) {
-            int distance = Math.abs(bombCol - targetCol);
-            return distance <= range;
-        }
-        
-        // Same column (vertical blast)
-        if (bombCol == targetCol) {
-            int distance = Math.abs(bombRow - targetRow);
-            return distance <= range;
-        }
-        
-        return false; // Not in blast path
-    }
 }
 
 

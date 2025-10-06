@@ -1,89 +1,42 @@
 package com.bomberman.engine;
 
-import java.util.*;
-
-import com.bomberman.model.Bomb;
-import com.bomberman.model.Bomber;
-import com.bomberman.model.GameMap;
-import com.bomberman.model.Position;
-
-
 public class DangerZoneCalculator {
-    private Set<Position> dangerZones = Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
-    public void updateDangerZones(Map<Integer, Bomb> bombs, EntityManager entityManager, GameMap gameMap) {
-        dangerZones.clear();
-        for (Bomb bomb : bombs.values()) {
-            Position bombPos = toGridPosition(bomb.x, bomb.y, gameMap.getTileSize());
-            Bomber owner = entityManager.getBomberByUid(bomb.uid);
-            int range = owner != null ? owner.explosionRange : 2;
-            dangerZones.add(bombPos);
-            for (int dx = 1; dx <= range; dx++) {
-                if (!addDangerIfNotBlocked(bombPos, dx, 0, gameMap, entityManager)) break;
-                if (!addDangerIfNotBlocked(bombPos, -dx, 0, gameMap, entityManager)) break;
-            }
-            for (int dy = 1; dy <= range; dy++) {
-                if (!addDangerIfNotBlocked(bombPos, 0, dy, gameMap, entityManager)) break;
-                if (!addDangerIfNotBlocked(bombPos, 0, -dy, gameMap, entityManager)) break;
-            }
-        }
-    }
-
-    private boolean addDangerIfNotBlocked(Position bombPos, int dx, int dy, GameMap gameMap, EntityManager entityManager) {
-        int newX = bombPos.x + dx * gameMap.getTileSize();
-        int newY = bombPos.y + dy * gameMap.getTileSize();
-        int gridX = newX / gameMap.getTileSize();
-        int gridY = newY / gameMap.getTileSize();
-        if (gridX < 0 || gridX >= gameMap.getMapWidth() || gridY < 0 || gridY >= gameMap.getMapHeight()) {
-            return false;
-        }
-        String cell = gameMap.getMap()[gridY][gridX];
-        if ("W".equals(cell)) return false;
-        Position p = new Position(newX, newY);
-        dangerZones.add(p);
-        if (entityManager.getChests().containsKey(p)) return false;
-        return true;
-    }
-
-    public Set<Position> getDangerZones() {
-        return dangerZones;
-    }
-
-    private Position toGridPosition(int x, int y, int tileSize) {
-        return new Position((x / tileSize) * tileSize + tileSize / 2, (y / tileSize) * tileSize + tileSize / 2);
-    }
-
-    public boolean[][] calculateDangerZones() {
-        if (map == null) return null;
-
+    // Build a danger zone map for a hypothetical bomb placed at (bombRow, bombCol)
+    public boolean[][] buildBombDangerZone(String[][] map, int bombRow, int bombCol, int range) {
+        if (map == null || map.length == 0) return null;
         int rows = map.length;
         int cols = map[0].length;
-        boolean[][] dangerZones = new boolean[rows][cols];
+        boolean[][] dangerZone = new boolean[rows][cols];
 
-        // Check each bomb
-        for (Bomb bomb : bombs.values()) {
-            if (bomb.isExploded()) continue;
-
-            int[] cell = coordToCell(bomb.getX(), bomb.getY());
-            int bombRow = cell[0];
-            int bombCol = cell[1];
-
-            // Get explosion range from the bomber who placed it
-            Bomber bomber = bombers.get(bomb.getUid());
-            int explosionRange = bomber != null ? bomber.getExplosionRange() : 2;
-
-            // Mark bomb center as dangerous
-            if (isValidCell(bombRow, bombCol)) {
-                dangerZones[bombRow][bombCol] = true;
-            }
-
-            // Check 4 directions: UP, DOWN, LEFT, RIGHT
-            markDangerInDirection(dangerZones, bombRow, bombCol, -1, 0, explosionRange); // UP
-            markDangerInDirection(dangerZones, bombRow, bombCol, 1, 0, explosionRange);  // DOWN
-            markDangerInDirection(dangerZones, bombRow, bombCol, 0, -1, explosionRange); // LEFT
-            markDangerInDirection(dangerZones, bombRow, bombCol, 0, 1, explosionRange);  // RIGHT
+        // Mark center
+        if (bombRow >= 0 && bombRow < rows && bombCol >= 0 && bombCol < cols) {
+            dangerZone[bombRow][bombCol] = true;
         }
 
-        return dangerZones;
+        // Mark 4 directions from the bomb
+        markDangerInDirection(dangerZone, map, bombRow, bombCol, -1, 0, range); // UP
+        markDangerInDirection(dangerZone, map, bombRow, bombCol, 1, 0, range);  // DOWN
+        markDangerInDirection(dangerZone, map, bombRow, bombCol, 0, -1, range); // LEFT
+        markDangerInDirection(dangerZone, map, bombRow, bombCol, 0, 1, range);  // RIGHT
+
+        return dangerZone;
+    }
+
+    private void markDangerInDirection(boolean[][] dangerZone, String[][] map,
+                                       int startRow, int startCol, int deltaRow, int deltaCol, int range) {
+        for (int i = 1; i <= range; i++) {
+            int row = startRow + (deltaRow * i);
+            int col = startCol + (deltaCol * i);
+
+            if (row < 0 || row >= map.length || col < 0 || col >= map[0].length) break;
+
+            String cell = map[row][col];
+            if ("W".equals(cell)) break; // Walls block explosion completely
+
+            dangerZone[row][col] = true;
+
+            if ("C".equals(cell)) break; // Chests stop further propagation
+        }
     }
 }

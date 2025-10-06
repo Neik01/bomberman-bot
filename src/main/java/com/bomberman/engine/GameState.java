@@ -24,15 +24,7 @@ public class GameState {
     // Only keep parseBombs since it also updates danger zones
     public void parseBombs(JSONArray bombsArray) {
         entityManager.parseBombs(bombsArray);
-        updateDangerZones();
     }
-
-    private void updateDangerZones() {
-        dangerZoneCalculator.updateDangerZones(entityManager.getBombs(), entityManager, gameMap);
-    }
-
-    // Remove direct wrappers for entityManager methods
-
 
     public Bomber getMyBomber() {
         return entityManager.getBomberByUid(myUid);
@@ -46,83 +38,6 @@ public class GameState {
             }
         }
         return enemies;
-    }
-
-    public Position toGridPosition(int x, int y) {
-        return new Position((x / gameMap.getTileSize()) * gameMap.getTileSize() + gameMap.getTileSize() / 2, 
-                          (y / gameMap.getTileSize()) * gameMap.getTileSize() + gameMap.getTileSize() / 2);
-    }
-
-//    public boolean isWalkable(int x, int y) {
-//        int gridX = x / gameMap.getTileSize();
-//        int gridY = y / gameMap.getTileSize();
-//        if (gridX < 0 || gridX >= gameMap.getMapWidth() || gridY < 0 || gridY >= gameMap.getMapHeight()) {
-//            return false;
-//        }
-//        String cell = gameMap.getMap()[gridY][gridX];
-//        if ("W".equals(cell)) return false;
-//        Position gridPos = new Position(gridX * gameMap.getTileSize() + gameMap.getTileSize() / 2,
-//                                       gridY * gameMap.getTileSize() + gameMap.getTileSize() / 2);
-//        if (entityManager.getChests().containsKey(gridPos)) return false;
-//        for (Bomb bomb : entityManager.getBombs().values()) {
-//            Position bombGrid = toGridPosition(bomb.x, bomb.y);
-//            if (bombGrid.equals(gridPos)) {
-//                return false;
-//            }
-//        }
-//        return true;
-//    }
-//
-//    public boolean isDangerous(int x, int y) {
-//        Position pos = toGridPosition(x, y);
-//        return dangerZoneCalculator.getDangerZones().contains(pos);
-//    }
-//
-//
-//    public boolean willBeDangerous(int x, int y, Position newBombPos, int explosionRange) {
-//        Position pos = toGridPosition(x, y);
-//        if (dangerZoneCalculator.getDangerZones().contains(pos)) return true;
-//        if (newBombPos != null && isInExplosionRange(pos, newBombPos, explosionRange)) {
-//            return true;
-//        }
-//        return false;
-//    }
-
-    private boolean isInExplosionRange(Position pos, Position bombPos, int range) {
-        if (pos.equals(bombPos)) return true;
-        if (pos.y == bombPos.y) {
-            int dist = Math.abs(pos.x - bombPos.x) / gameMap.getTileSize();
-            if (dist <= range) {
-                return !isBlockedByWall(bombPos, pos);
-            }
-        }
-        if (pos.x == bombPos.x) {
-            int dist = Math.abs(pos.y - bombPos.y) / gameMap.getTileSize();
-            if (dist <= range) {
-                return !isBlockedByWall(bombPos, pos);
-            }
-        }
-        return false;
-    }
-
-    private boolean isBlockedByWall(Position from, Position to) {
-        int dx = Integer.compare(to.x - from.x, 0);
-        int dy = Integer.compare(to.y - from.y, 0);
-        int currentX = from.x + (dx * gameMap.getTileSize());
-        int currentY = from.y + (dy * gameMap.getTileSize());
-        while (currentX != to.x || currentY != to.y) {
-            int gridX = currentX / gameMap.getTileSize();
-            int gridY = currentY / gameMap.getTileSize();
-            if (gridX >= 0 && gridX < gameMap.getMapWidth() && gridY >= 0 && gridY < gameMap.getMapHeight()) {
-                String cell = gameMap.getMap()[gridY][gridX];
-                if ("W".equals(cell) || "C".equals(cell)) {
-                    return true;
-                }
-            }
-            currentX += dx * gameMap.getTileSize();
-            currentY += dy * gameMap.getTileSize();
-        }
-        return false;
     }
 
     public void setMyUid(String uid) {
@@ -187,5 +102,54 @@ public class GameState {
 
     public int[] cellToCoord(int row, int col) {
         return new int[]{col * getGameMap().getTileSize() + getGameMap().getTileSize() / 2, row * getGameMap().getTileSize() + getGameMap().getTileSize() / 2};
+    }
+
+    // --- Helpers used by BombermanBot ---
+    public boolean[][] calculateDangerZones() {
+        String[][] map = gameMap.getMap();
+        if (map == null || map.length == 0) return null;
+        int rows = map.length;
+        int cols = map[0].length;
+        boolean[][] combined = new boolean[rows][cols];
+
+        for (Bomb bomb : entityManager.getBombs().values()) {
+            int[] cell = coordToCell(bomb.x, bomb.y);
+            int bombRow = cell[0];
+            int bombCol = cell[1];
+
+            Bomber owner = entityManager.getBombers().get(bomb.uid);
+            int range = owner != null ? owner.getExplosionRange() : 2;
+
+            boolean[][] dz = dangerZoneCalculator.buildBombDangerZone(map, bombRow, bombCol, range);
+            if (dz == null) continue;
+            for (int r = 0; r < rows; r++) {
+                for (int c = 0; c < cols; c++) {
+                    combined[r][c] = combined[r][c] || dz[r][c];
+                }
+            }
+        }
+
+        return combined;
+    }
+
+    public boolean isInDangerZone(int x, int y, boolean[][] dangerZones) {
+        if (dangerZones == null) return false;
+        int[] cell = coordToCell(x, y);
+        int row = cell[0];
+        int col = cell[1];
+        if (row < 0 || row >= dangerZones.length || col < 0 || col >= dangerZones[0].length) return false;
+        return dangerZones[row][col];
+    }
+
+    public boolean isPositionWalkable(int x, int y) {
+        return entityManager.isPositionWalkable(x, y);
+    }
+
+    public boolean isGameStarted() {
+        return entityManager.isGameStarted();
+    }
+
+    public void setGameStarted(boolean started) {
+        entityManager.setGameStarted(started);
     }
 }
